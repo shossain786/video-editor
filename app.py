@@ -15,7 +15,7 @@ import uuid
 
 import gradio as gr
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output")
@@ -209,6 +209,52 @@ def op_denoise(video, method):
     return out
 
 
+def _dimensions(video) -> tuple[int, int]:
+    """Return (width, height) of the first video stream via ffprobe."""
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video],
+        capture_output=True, text=True).stdout.strip()
+    w, h = out.split("x")
+    return int(w), int(h)
+
+
+def _even(v: int) -> int:
+    """Round down to an even number (libx264/yuv420p needs even dimensions)."""
+    v = int(round(v))
+    return v - (v % 2)
+
+
+def op_zoom(video, start, end, zoom, focus_x, focus_y):
+    """
+    Punch-in zoom onto a region for a time window. Outside [start,end] the full
+    frame shows; inside it, a `zoom`x crop centered on (focus_x%, focus_y%) is
+    scaled to fill the frame — good for highlighting a line of code.
+    """
+    _need(video)
+    s, e = _to_seconds(start), _to_seconds(end)
+    if s is None or e is None or e <= s:
+        raise gr.Error("Enter a valid Start and End (End after Start).")
+    if zoom <= 1:
+        raise gr.Error("Zoom must be greater than 1.")
+
+    w, h = _dimensions(video)
+    cw, ch = _even(w / zoom), _even(h / zoom)           # cropped region size
+    fx, fy = focus_x / 100.0, focus_y / 100.0
+    x = _even(max(0, min(w - cw, fx * w - cw / 2)))     # keep crop in-frame
+    y = _even(max(0, min(h - ch, fy * h - ch / 2)))
+
+    filt = (
+        f"[0:v]split[base][z];"
+        f"[z]crop={cw}:{ch}:{x}:{y},scale={w}:{h}[zoomed];"
+        f"[base][zoomed]overlay=0:0:enable='between(t,{s},{e})'[v]"
+    )
+    out = _out(".mp4")
+    _run(["ffmpeg", "-y", "-i", video, "-filter_complex", filt,
+          "-map", "[v]", "-map", "0:a?", "-c:a", "copy", out])
+    return out
+
+
 def op_combine(video, do_cut, cut_start, cut_end, do_speed, speed_factor,
                do_denoise, denoise_method, do_mute,
                do_caption, rows, tcol, bcol, bop, position, fontsize):
@@ -351,6 +397,24 @@ with gr.Blocks(title="Video Editor") as demo:
         out = gr.Video(label="Result")
         gr.Button("Add captions", variant="primary").click(
             op_caption, [v, rows, tcol, bcol, bop, pos, fs], out)
+
+    with gr.Tab("Zoom"):
+        gr.Markdown(
+            "Punch-in zoom onto a region for a time window — e.g. to highlight a "
+            "line of code. Focus is the center point as a % of width/height "
+            "(0,0 = top-left, 50,50 = center)."
+        )
+        v = gr.Video(label="Input")
+        with gr.Row():
+            zs = gr.Textbox(label="Start (e.g. 00:00:03)")
+            ze = gr.Textbox(label="End (e.g. 00:00:06)")
+        zf = gr.Slider(1.1, 4.0, value=2.0, step=0.1, label="Zoom factor")
+        with gr.Row():
+            zx = gr.Slider(0, 100, value=50, step=1, label="Focus X (% from left)")
+            zy = gr.Slider(0, 100, value=50, step=1, label="Focus Y (% from top)")
+        out = gr.Video(label="Result")
+        gr.Button("Apply zoom", variant="primary").click(
+            op_zoom, [v, zs, ze, zf, zx, zy], out)
 
     with gr.Tab("Speed"):
         v = gr.Video(label="Input")

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-04
+
+### Added
+- **Zoom tab** — punch-in zoom onto a region for a time window, for
+  highlighting things like a line of code. Set start/end, a zoom factor, and a
+  focus point (X/Y as a % of the frame); the full frame shows outside the
+  window and the zoomed region fills it inside.
+
 ## [0.2.2] - 2026-07-04
 
 ### Changed
@@ -50,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Denoise** — AI `arnndn` model for voice, with `afftdn` FFT fallback.
 - `run.sh` launcher, pinned `requirements.txt`, and bundled RNN denoise model.
 
-[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/shossain786/video-editor/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/shossain786/video-editor/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/shossain786/video-editor/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/shossain786/video-editor/compare/v0.1.0...v0.2.0
