@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-04
+
+### Added
+- **Smooth zoom** — the Zoom tab can now ease the punch-in in and out over an
+  adjustable duration (via `zoompan`) instead of a hard cut. Toggle "Smooth"
+  off for the original instant zoom.
+- **Highlight tab** — spotlight a rectangular region for a time window: dims
+  everything outside it and draws a colored border. Region, dim amount, border
+  color, and thickness are all configurable. Good for calling out a code block.
+- **Zoom and Highlight in the Combine tab** — both now stack in the pipeline
+  (Cut → Speed → Denoise/Mute → Highlight → Caption → Zoom). Zoom runs as a
+  chained second pass since it needs a filter graph the others don't.
+- **Visual region picker for Highlight** — load a frame and click the two
+  opposite corners to select the spotlight area; the X/Y/W/H sliders fill in
+  automatically and the box is drawn on the preview. Manual sliders still work.
+- **Visual zoom-to-box for Zoom** — load a frame and click the two opposite
+  corners around the region to frame (e.g. two lines of code); the zoom factor
+  and focus point are computed to fit that box (zoom clamped to the slider
+  range). Manual sliders still work.
+
 ## [0.3.0] - 2026-07-04
 
 ### Added
@@ -58,7 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Denoise** — AI `arnndn` model for voice, with `afftdn` FFT fallback.
 - `run.sh` launcher, pinned `requirements.txt`, and bundled RNN denoise model.
 
-[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/shossain786/video-editor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/shossain786/video-editor/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/shossain786/video-editor/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/shossain786/video-editor/compare/v0.2.0...v0.2.1
