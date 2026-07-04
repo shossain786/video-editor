@@ -15,7 +15,7 @@ import uuid
 
 import gradio as gr
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output")
@@ -44,6 +44,25 @@ def _need(video):
     return video
 
 
+def _to_seconds(val) -> float | None:
+    """Parse '2', '2.5', '1:30', or '00:00:02' into seconds. Blank -> None."""
+    s = str(val).strip()
+    if not s:
+        return None
+    if ":" in s:
+        secs = 0.0
+        for p in s.split(":"):               # accumulate H:M:S or M:S
+            secs = secs * 60 + float(p)
+        return secs
+    return float(s)
+
+
+def _ffcolor(hexstr: str, opacity: float = 1.0) -> str:
+    """Turn a '#rrggbb' picker value into ffmpeg's '0xrrggbb@a' color form."""
+    h = str(hexstr).strip().lstrip("#") or "000000"
+    return f"0x{h}@{opacity:.3f}"
+
+
 def _atempo_chain(factor: float) -> str:
     """
     ffmpeg's atempo only accepts 0.5–2.0, so decompose the factor into a
@@ -61,27 +80,64 @@ def _atempo_chain(factor: float) -> str:
     return ",".join(steps)
 
 
+POSITIONS = {
+    "Bottom": "x=(w-text_w)/2:y=h-text_h-40",
+    "Top": "x=(w-text_w)/2:y=40",
+    "Center": "x=(w-text_w)/2:y=(h-text_h)/2",
+}
+
+
+def _denoise_filter(method: str) -> str:
+    """Pick the ffmpeg audio-denoise filter for the chosen method."""
+    if method.startswith("arnndn") and os.path.exists(MODEL):
+        return f"arnndn=m={MODEL}"
+    return "afftdn=nf=-25"  # FFT denoise fallback
+
+
+def _caption_draws(rows, text_color, bg_color, bg_opacity, position, fontsize):
+    """Build a list of drawtext filters, one per non-empty caption row."""
+    pos = POSITIONS[position]
+    fontcol = _ffcolor(text_color)
+    boxcol = _ffcolor(bg_color, bg_opacity)
+    draws = []
+    for row in rows:
+        if not row or len(row) < 3:
+            continue
+        start, end, text = row[0], row[1], row[2]
+        if text is None or not str(text).strip():
+            continue
+        # escape characters that are special inside the filtergraph
+        safe = (str(text).replace("\\", "\\\\")
+                .replace(":", r"\:").replace("'", r"\\'"))
+        d = (
+            f"drawtext=text='{safe}':fontcolor={fontcol}:fontsize={int(fontsize)}:"
+            f"box=1:boxcolor={boxcol}:boxborderw=12:{pos}"
+        )
+        s, e = _to_seconds(start), _to_seconds(end)
+        if s is not None and e is not None:
+            d += f":enable='between(t,{s},{e})'"
+        elif s is not None:
+            d += f":enable='gte(t,{s})'"
+        draws.append(d)
+    return draws
+
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
 
-def op_caption(video, text, position, fontsize):
+def op_caption(video, rows, text_color, bg_color, bg_opacity, position, fontsize):
+    """
+    Burn one or more timed captions. `rows` is a table of [start, end, text];
+    each row becomes a drawtext gated with enable=between(t,start,end). Blank
+    start/end means "show for the whole clip".
+    """
     _need(video)
-    if not text.strip():
-        raise gr.Error("Enter caption text.")
+    draws = _caption_draws(rows, text_color, bg_color, bg_opacity, position, fontsize)
+    if not draws:
+        raise gr.Error("Add at least one caption row with text.")
     out = _out(".mp4")
-    pos = {
-        "Bottom": "x=(w-text_w)/2:y=h-text_h-40",
-        "Top": "x=(w-text_w)/2:y=40",
-        "Center": "x=(w-text_w)/2:y=(h-text_h)/2",
-    }[position]
-    # escape characters that are special inside the filtergraph
-    safe = text.replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\\'")
-    draw = (
-        f"drawtext=text='{safe}':fontcolor=white:fontsize={int(fontsize)}:"
-        f"box=1:boxcolor=black@0.5:boxborderw=12:{pos}"
-    )
-    _run(["ffmpeg", "-y", "-i", video, "-vf", draw,
+    _run(["ffmpeg", "-y", "-i", video, "-vf", ",".join(draws),
           "-c:a", "copy", out])
     return out
 
@@ -143,12 +199,61 @@ def op_mute(video):
 def op_denoise(video, method):
     _need(video)
     out = _out(".mp4")
-    if method == "arnndn (AI, best for voice)" and os.path.exists(MODEL):
-        af = f"arnndn=m={MODEL}"
-    else:
-        af = "afftdn=nf=-25"  # FFT denoise fallback
-    _run(["ffmpeg", "-y", "-i", video, "-af", af,
+    _run(["ffmpeg", "-y", "-i", video, "-af", _denoise_filter(method),
           "-c:v", "copy", out])
+    return out
+
+
+def op_combine(video, do_cut, cut_start, cut_end, do_speed, speed_factor,
+               do_denoise, denoise_method, do_mute,
+               do_caption, rows, tcol, bcol, bop, position, fontsize):
+    """
+    Run several operations in a single ffmpeg pass, in the order
+    Cut -> Speed -> Denoise/Mute -> Caption. Only enabled steps are applied.
+    Caption times are on the FINAL timeline (after any speed change).
+    """
+    _need(video)
+    if not any([do_cut, do_speed, do_denoise, do_mute, do_caption]):
+        raise gr.Error("Enable at least one operation.")
+
+    args = ["ffmpeg", "-y"]
+    # Cut is applied as input options so downstream filters see a trimmed clip.
+    if do_cut:
+        if cut_start.strip():
+            args += ["-ss", cut_start.strip()]
+        if cut_end.strip():
+            args += ["-to", cut_end.strip()]
+    args += ["-i", video]
+
+    # Video filterchain: speed first (so caption t is on the final timeline).
+    vf = []
+    if do_speed:
+        if speed_factor <= 0:
+            raise gr.Error("Speed factor must be > 0.")
+        vf.append(f"setpts={1/speed_factor:.6f}*PTS")
+    if do_caption:
+        draws = _caption_draws(rows, tcol, bcol, bop, position, fontsize)
+        if not draws:
+            raise gr.Error("Caption is enabled but no row has text.")
+        vf += draws
+
+    # Audio filterchain (skipped entirely if muting).
+    af = []
+    if do_speed and not do_mute:
+        af.append(_atempo_chain(speed_factor))
+    if do_denoise and not do_mute:
+        af.append(_denoise_filter(denoise_method))
+
+    if vf:
+        args += ["-filter:v", ",".join(vf)]
+    if do_mute:
+        args += ["-an"]
+    elif af:
+        args += ["-filter:a", ",".join(af)]
+
+    out = _out(".mp4")
+    args += [out]
+    _run(args)
     return out
 
 
@@ -159,15 +264,76 @@ def op_denoise(video, method):
 with gr.Blocks(title="Video Editor") as demo:
     gr.Markdown("# 🎬 Personal Video Editor\nLocal FFmpeg tool — pick a tab, upload, run.")
 
+    with gr.Tab("Combine (all-in-one)"):
+        gr.Markdown(
+            "Enable the steps you want; they run in **one pass** in this order: "
+            "**Cut → Speed → Denoise/Mute → Caption**. "
+            "Caption times are on the *final* timeline (after speed)."
+        )
+        cv = gr.Video(label="Input")
+
+        with gr.Accordion("✂️ Cut", open=False):
+            c_cut = gr.Checkbox(label="Enable cut")
+            with gr.Row():
+                c_cs = gr.Textbox(label="Start (e.g. 00:00:05)")
+                c_ce = gr.Textbox(label="End (e.g. 00:00:20)")
+
+        with gr.Accordion("⏩ Speed", open=False):
+            c_speed = gr.Checkbox(label="Enable speed change")
+            c_fac = gr.Slider(0.25, 4.0, value=2.0, step=0.05, label="Speed factor")
+
+        with gr.Accordion("🔇 Audio (denoise / mute)", open=False):
+            c_den = gr.Checkbox(label="Enable denoise")
+            c_denm = gr.Radio(
+                ["arnndn (AI, best for voice)", "afftdn (FFT, no model)"],
+                value="arnndn (AI, best for voice)", label="Denoise method")
+            c_mute = gr.Checkbox(label="Mute (removes audio — overrides denoise)")
+
+        with gr.Accordion("💬 Caption", open=False):
+            c_cap = gr.Checkbox(label="Enable captions")
+            c_rows = gr.Dataframe(
+                headers=["Start", "End", "Text"],
+                datatype=["str", "str", "str"],
+                value=[["0", "4", "First caption"], ["4", "8", "Second caption"]],
+                row_count=(1, "dynamic"),
+                column_count=(3, "fixed"),
+                label="Times in seconds or HH:MM:SS. Blank End = show to clip end.",
+            )
+            with gr.Row():
+                c_tcol = gr.ColorPicker(value="#FFFFFF", label="Text color")
+                c_bcol = gr.ColorPicker(value="#000000", label="Background color")
+                c_bop = gr.Slider(0, 1, value=0.5, step=0.05, label="Background opacity")
+            with gr.Row():
+                c_pos = gr.Radio(["Bottom", "Top", "Center"], value="Bottom", label="Position")
+                c_fs = gr.Slider(12, 96, value=36, step=1, label="Font size")
+
+        c_out = gr.Video(label="Result")
+        gr.Button("Run pipeline", variant="primary").click(
+            op_combine,
+            [cv, c_cut, c_cs, c_ce, c_speed, c_fac, c_den, c_denm, c_mute,
+             c_cap, c_rows, c_tcol, c_bcol, c_bop, c_pos, c_fs],
+            c_out)
+
     with gr.Tab("Caption"):
         v = gr.Video(label="Input")
-        txt = gr.Textbox(label="Caption text")
+        rows = gr.Dataframe(
+            headers=["Start", "End", "Text"],
+            datatype=["str", "str", "str"],
+            value=[["0", "4", "First caption"], ["4", "8", "Second caption"]],
+            row_count=(1, "dynamic"),
+            column_count=(3, "fixed"),
+            label="Captions — time in seconds or HH:MM:SS. Blank End = show to clip end.",
+        )
+        with gr.Row():
+            tcol = gr.ColorPicker(value="#FFFFFF", label="Text color")
+            bcol = gr.ColorPicker(value="#000000", label="Background color")
+            bop = gr.Slider(0, 1, value=0.5, step=0.05, label="Background opacity")
         with gr.Row():
             pos = gr.Radio(["Bottom", "Top", "Center"], value="Bottom", label="Position")
             fs = gr.Slider(12, 96, value=36, step=1, label="Font size")
         out = gr.Video(label="Result")
-        gr.Button("Add caption", variant="primary").click(
-            op_caption, [v, txt, pos, fs], out)
+        gr.Button("Add captions", variant="primary").click(
+            op_caption, [v, rows, tcol, bcol, bop, pos, fs], out)
 
     with gr.Tab("Speed"):
         v = gr.Video(label="Input")
