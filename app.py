@@ -15,7 +15,7 @@ import uuid
 
 import gradio as gr
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output")
@@ -96,6 +96,11 @@ def _denoise_filter(method: str) -> str:
 
 def _caption_draws(rows, text_color, bg_color, bg_opacity, position, fontsize):
     """Build a list of drawtext filters, one per non-empty caption row."""
+    # gr.Dataframe may hand us a pandas DataFrame; normalize to list-of-rows.
+    if hasattr(rows, "values") and hasattr(rows, "columns"):
+        rows = rows.values.tolist()
+    elif rows is None:
+        rows = []
     pos = POSITIONS[position]
     fontcol = _ffcolor(text_color)
     boxcol = _ffcolor(bg_color, bg_opacity)
@@ -294,6 +299,7 @@ with gr.Blocks(title="Video Editor") as demo:
             c_rows = gr.Dataframe(
                 headers=["Start", "End", "Text"],
                 datatype=["str", "str", "str"],
+                type="array",
                 value=[["0", "4", "First caption"], ["4", "8", "Second caption"]],
                 row_count=(1, "dynamic"),
                 column_count=(3, "fixed"),
@@ -319,6 +325,7 @@ with gr.Blocks(title="Video Editor") as demo:
         rows = gr.Dataframe(
             headers=["Start", "End", "Text"],
             datatype=["str", "str", "str"],
+            type="array",
             value=[["0", "4", "First caption"], ["4", "8", "Second caption"]],
             row_count=(1, "dynamic"),
             column_count=(3, "fixed"),
