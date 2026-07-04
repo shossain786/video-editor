@@ -15,7 +15,7 @@ import uuid
 
 import gradio as gr
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output")
@@ -278,24 +278,24 @@ with gr.Blocks(title="Video Editor") as demo:
         cv = gr.Video(label="Input")
 
         with gr.Accordion("✂️ Cut", open=False):
-            c_cut = gr.Checkbox(label="Enable cut")
+            c_cut = gr.Checkbox(label="Enable cut (auto-checks when you edit below)")
             with gr.Row():
                 c_cs = gr.Textbox(label="Start (e.g. 00:00:05)")
                 c_ce = gr.Textbox(label="End (e.g. 00:00:20)")
 
         with gr.Accordion("⏩ Speed", open=False):
-            c_speed = gr.Checkbox(label="Enable speed change")
+            c_speed = gr.Checkbox(label="Enable speed change (auto-checks when you edit below)")
             c_fac = gr.Slider(0.25, 4.0, value=2.0, step=0.05, label="Speed factor")
 
         with gr.Accordion("🔇 Audio (denoise / mute)", open=False):
-            c_den = gr.Checkbox(label="Enable denoise")
+            c_den = gr.Checkbox(label="Enable denoise (auto-checks when you pick a method)")
             c_denm = gr.Radio(
                 ["arnndn (AI, best for voice)", "afftdn (FFT, no model)"],
                 value="arnndn (AI, best for voice)", label="Denoise method")
             c_mute = gr.Checkbox(label="Mute (removes audio — overrides denoise)")
 
         with gr.Accordion("💬 Caption", open=False):
-            c_cap = gr.Checkbox(label="Enable captions")
+            c_cap = gr.Checkbox(label="Enable captions (auto-checks when you edit below)")
             c_rows = gr.Dataframe(
                 headers=["Start", "End", "Text"],
                 datatype=["str", "str", "str"],
@@ -319,6 +319,16 @@ with gr.Blocks(title="Video Editor") as demo:
             [cv, c_cut, c_cs, c_ce, c_speed, c_fac, c_den, c_denm, c_mute,
              c_cap, c_rows, c_tcol, c_bcol, c_bop, c_pos, c_fs],
             c_out)
+
+        # Auto-enable each step the moment its fields are touched, so you can't
+        # forget the checkbox. (You can still untick a checkbox to skip a step.)
+        _enable = lambda: gr.update(value=True)
+        for field in (c_cs, c_ce):
+            field.change(_enable, None, c_cut)
+        c_fac.change(_enable, None, c_speed)
+        c_denm.change(_enable, None, c_den)
+        for field in (c_rows, c_tcol, c_bcol, c_bop, c_pos, c_fs):
+            field.change(_enable, None, c_cap)
 
     with gr.Tab("Caption"):
         v = gr.Video(label="Input")

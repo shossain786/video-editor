@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-04
+
+### Changed
+- Combine tab: each step now auto-enables its checkbox as soon as you edit any
+  of its fields (cut times, speed factor, denoise method, or any caption
+  setting), so a step can't be silently skipped by forgetting to tick it. You
+  can still untick a checkbox to skip that step.
+
 ## [0.2.1] - 2026-07-04
 
 ### Fixed
@@ -42,7 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Denoise** — AI `arnndn` model for voice, with `afftdn` FFT fallback.
 - `run.sh` launcher, pinned `requirements.txt`, and bundled RNN denoise model.
 
-[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/shossain786/video-editor/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/shossain786/video-editor/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/shossain786/video-editor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/shossain786/video-editor/releases/tag/v0.1.0
