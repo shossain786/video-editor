@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-05
+
+### Added
+- **Live zoom-region preview** — after picking (or when you drag Zoom factor /
+  Focus), the Zoom tab draws a yellow rectangle showing exactly what will fill
+  the screen, so you can tune the zoom instead of guessing.
+
+### Changed
+- Clarified that "zoom to a box" keeps the whole selection visible, so a wide,
+  short selection (e.g. two code lines spanning the width) only zooms a little —
+  drag Zoom factor up to tighten. The preview makes this obvious.
+
 ## [0.4.0] - 2026-07-04
 
 ### Added
@@ -78,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Denoise** — AI `arnndn` model for voice, with `afftdn` FFT fallback.
 - `run.sh` launcher, pinned `requirements.txt`, and bundled RNN denoise model.
 
-[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/shossain786/video-editor/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/shossain786/video-editor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/shossain786/video-editor/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/shossain786/video-editor/compare/v0.2.1...v0.2.2

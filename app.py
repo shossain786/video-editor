@@ -17,7 +17,7 @@ import gradio as gr
 import numpy as np
 from PIL import Image, ImageDraw
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output")
@@ -355,6 +355,22 @@ def _pick_zoom_box(evt: gr.SelectData, first, orig, zmax=4.0, zmin=1.1):
             _draw_overlay(orig, box=(bx, by, bw, bh)))
 
 
+def _preview_zoom(orig, zoom, fx, fy):
+    """
+    Draw the exact region that a zoom will make fill the screen: a rectangle of
+    W/zoom x H/zoom (frame aspect) centered on the focus point. Lets you see and
+    tune what gets zoomed. Returns the annotated frame (or a no-op update).
+    """
+    if orig is None or not zoom or zoom <= 1:
+        return gr.update()
+    h, w = orig.shape[:2]
+    cw, ch = w / zoom, h / zoom
+    cx, cy = fx / 100.0 * w, fy / 100.0 * h
+    x = max(0, min(w - cw, cx - cw / 2))
+    y = max(0, min(h - ch, cy - ch / 2))
+    return _draw_overlay(orig, box=(x, y, cw, ch), color=(255, 215, 0))
+
+
 def _highlight_boxes(w, h, s, e, rx, ry, rw, rh, dim, border_color, thickness):
     """Build the drawbox filters (4 dim margins + border) for a spotlight."""
     x = _even(max(0, min(w - 2, rx / 100.0 * w)))
@@ -596,8 +612,10 @@ with gr.Blocks(title="Video Editor") as demo:
         gr.Markdown(
             "Punch-in zoom for a time window — e.g. to frame two lines of code. "
             "**Zoom to a box:** set a Start time, load the frame, then click the "
-            "**two opposite corners** around the region — the zoom factor and "
-            "focus are computed to fit it. Times set *when* the zoom happens."
+            "**two opposite corners** around the region. The **yellow rectangle** "
+            "then shows *exactly what will fill the screen* — drag **Zoom factor** "
+            "up to tighten it (a wide selection only zooms a little, since the "
+            "whole box has to stay visible). Times set *when* the zoom happens."
         )
         v = gr.Video(label="Input")
         with gr.Row():
@@ -623,6 +641,9 @@ with gr.Blocks(title="Video Editor") as demo:
         zpick_btn.click(_grab_frame, [v, zs], [zpick_img, z_orig, z_first])
         zpick_img.select(_pick_zoom_box, [z_first, z_orig],
                          [z_first, zf, zx, zy, zpick_img])
+        # Live preview: show the exact crop region whenever zoom/focus changes.
+        for comp in (zf, zx, zy):
+            comp.change(_preview_zoom, [z_orig, zf, zx, zy], zpick_img)
 
     with gr.Tab("Highlight"):
         gr.Markdown(
