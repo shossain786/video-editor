@@ -8,7 +8,9 @@ Run:  .venv/bin/python app.py   then open http://localhost:7860
 """
 
 import os
+import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -17,7 +19,7 @@ import gradio as gr
 import numpy as np
 from PIL import Image, ImageDraw
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "output")
@@ -25,9 +27,25 @@ MODEL = os.path.join(HERE, "models", "denoise.rnnn")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
-def _out(suffix: str) -> str:
-    """A fresh path in the output dir with the given extension, e.g. '.mp4'."""
-    return os.path.join(OUT_DIR, f"{uuid.uuid4().hex[:8]}{suffix}")
+def _out(src=None, tag="edit", suffix=".mp4") -> str:
+    """
+    An output path named after the source file plus what we did to it, e.g.
+    demo.mp4 + tag 'zoom' -> 'demo_zoom.mp4'. Adds a numeric suffix instead of
+    overwriting an existing file (demo_zoom_2.mp4, ...).
+    """
+    base = os.path.splitext(os.path.basename(str(src)))[0] if src else "output"
+    base = re.sub(r"[^\w.-]+", "_", base).strip("_") or "output"
+    path = os.path.join(OUT_DIR, f"{base}_{tag}{suffix}")
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(OUT_DIR, f"{base}_{tag}_{n}{suffix}")
+        n += 1
+    return path
+
+
+def _tmpfile(suffix=".mp4") -> str:
+    """A private scratch path (system temp) for pipeline intermediates."""
+    return os.path.join(tempfile.gettempdir(), f"vedit_{uuid.uuid4().hex[:8]}{suffix}")
 
 
 def _run(cmd: list[str]) -> str:
@@ -143,7 +161,7 @@ def op_caption(video, rows, text_color, bg_color, bg_opacity, position, fontsize
     draws = _caption_draws(rows, text_color, bg_color, bg_opacity, position, fontsize)
     if not draws:
         raise gr.Error("Add at least one caption row with text.")
-    out = _out(".mp4")
+    out = _out(video, "captioned")
     _run(["ffmpeg", "-y", "-i", video, "-vf", ",".join(draws),
           "-c:a", "copy", out])
     return out
@@ -153,7 +171,7 @@ def op_speed(video, factor, keep_audio):
     _need(video)
     if factor <= 0:
         raise gr.Error("Speed factor must be > 0.")
-    out = _out(".mp4")
+    out = _out(video, "speed")
     vf = f"setpts={1/factor:.6f}*PTS"
     if keep_audio:
         af = _atempo_chain(factor)
@@ -166,7 +184,7 @@ def op_speed(video, factor, keep_audio):
 
 def op_gif(video, fps, width, start, end):
     _need(video)
-    out = _out(".gif")
+    out = _out(video, "gif", ".gif")
     trim = []
     if start.strip():
         trim += ["-ss", start.strip()]
@@ -185,7 +203,7 @@ def op_cut(video, start, end):
     _need(video)
     if not start.strip() and not end.strip():
         raise gr.Error("Enter a start and/or end time (e.g. 00:00:05).")
-    out = _out(".mp4")
+    out = _out(video, "cut")
     args = ["ffmpeg", "-y"]
     if start.strip():
         args += ["-ss", start.strip()]
@@ -198,14 +216,14 @@ def op_cut(video, start, end):
 
 def op_mute(video):
     _need(video)
-    out = _out(".mp4")
+    out = _out(video, "muted")
     _run(["ffmpeg", "-y", "-i", video, "-c", "copy", "-an", out])
     return out
 
 
 def op_denoise(video, method):
     _need(video)
-    out = _out(".mp4")
+    out = _out(video, "denoised")
     _run(["ffmpeg", "-y", "-i", video, "-af", _denoise_filter(method),
           "-c:v", "copy", out])
     return out
@@ -279,7 +297,7 @@ def op_zoom(video, start, end, zoom, focus_x, focus_y, smooth, ramp):
         raise gr.Error("Zoom must be greater than 1.")
 
     filt = _zoom_filter(video, s, e, zoom, focus_x, focus_y, smooth, ramp)
-    out = _out(".mp4")
+    out = _out(video, "zoom")
     _run(["ffmpeg", "-y", "-i", video, "-filter_complex", filt,
           "-map", "[v]", "-map", "0:a?", "-c:a", "copy", out])
     return out
@@ -289,9 +307,10 @@ def _grab_frame(video, at):
     """Grab a still frame (RGB numpy) from `video` at time `at` for picking."""
     _need(video)
     s = _to_seconds(at) or 0
-    tmp = _out(".png")
+    tmp = _tmpfile(".png")
     _run(["ffmpeg", "-y", "-ss", str(s), "-i", video, "-frames:v", "1", tmp])
     frame = np.array(Image.open(tmp).convert("RGB"))
+    os.remove(tmp)
     # (display frame, keep a clean copy for redraws, reset the first-corner state)
     return frame, frame, None
 
@@ -401,7 +420,7 @@ def op_highlight(video, start, end, rx, ry, rw, rh, dim, border_color, thickness
         raise gr.Error("Enter a valid Start and End (End after Start).")
     w, h = _dimensions(video)
     filters = _highlight_boxes(w, h, s, e, rx, ry, rw, rh, dim, border_color, thickness)
-    out = _out(".mp4")
+    out = _out(video, "highlight")
     _run(["ffmpeg", "-y", "-i", video, "-vf", ",".join(filters),
           "-c:a", "copy", out])
     return out
@@ -472,14 +491,20 @@ def op_combine(video, do_cut, cut_start, cut_end, do_speed, speed_factor,
         elif af:
             args += ["-filter:a", ",".join(af)]
 
-        mid = _out(".mp4")
+        mid = _tmpfile(".mp4")
         args += [mid]
         _run(args)
 
+    final = _out(video, "edited")
     if do_zoom:
-        return op_zoom(mid, z_start, z_end, z_factor, z_fx, z_fy,
+        zres = op_zoom(mid, z_start, z_end, z_factor, z_fx, z_fy,
                        z_smooth, z_ramp)
-    return mid
+        shutil.move(zres, final)
+    else:
+        shutil.move(mid, final)
+    if mid != video and os.path.exists(mid):
+        os.remove(mid)                       # drop the pass-1 intermediate
+    return final
 
 
 # ---------------------------------------------------------------------------

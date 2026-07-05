@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-05
+
+### Changed
+- Output files are now named after the source plus the operation
+  (e.g. `demo.mp4` → `demo_zoom.mp4`, `demo_captioned.mp4`, `demo_edited.mp4`)
+  instead of a random hex string. Re-runs get a numeric suffix rather than
+  overwriting; pipeline intermediates go to a temp dir and are cleaned up.
+
 ## [0.4.1] - 2026-07-05
 
 ### Added
@@ -90,7 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Denoise** — AI `arnndn` model for voice, with `afftdn` FFT fallback.
 - `run.sh` launcher, pinned `requirements.txt`, and bundled RNN denoise model.
 
-[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/shossain786/video-editor/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/shossain786/video-editor/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/shossain786/video-editor/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/shossain786/video-editor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/shossain786/video-editor/compare/v0.2.2...v0.3.0
